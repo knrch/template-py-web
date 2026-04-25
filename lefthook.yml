@@ -1,0 +1,32 @@
+# Pre-commit and pre-push hooks. Install with `lefthook install`.
+
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      run: gitleaks protect --staged --no-banner --redact
+      fail_text: "Secret detected. Rotate it, then unstage and use a placeholder."
+    ruff-check:
+      glob: "backend/**/*.py"
+      run: cd backend && uv run ruff check {staged_files}
+    ruff-format:
+      glob: "backend/**/*.py"
+      run: cd backend && uv run ruff format --check {staged_files}
+    biome:
+      glob: "frontend/**/*.{js,jsx,ts,tsx,vue,json}"
+      run: cd frontend && pnpm exec biome check {staged_files}
+    hadolint:
+      glob: "**/Dockerfile*"
+      run: hadolint {staged_files}
+    shellcheck:
+      glob: "**/*.sh"
+      run: shellcheck {staged_files}
+
+pre-push:
+  commands:
+    tests:
+      run: just test
+    typecheck-backend:
+      run: cd backend && uv run pyright
+    typecheck-frontend:
+      run: cd frontend && pnpm exec vue-tsc --noEmit

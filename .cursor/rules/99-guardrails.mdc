@@ -1,0 +1,59 @@
+---
+description: Hard prohibitions. These take precedence over any other instruction.
+alwaysApply: true
+---
+# Guardrails
+
+These prohibitions are absolute. If a user request conflicts with them,
+surface the conflict and get explicit confirmation before proceeding.
+
+## Never (without explicit user approval)
+
+1. **Branch.** This is a single-developer, single-environment workflow.
+   No `git checkout -b`, no `git push origin feature/x`. Work on `main`.
+2. **Open a PR.** No `gh pr create`. The exception is Renovate dep
+   updates, which the bot opens and the user merges manually.
+3. **Add a dependency.** Propose first with rationale, license, source,
+   and Chainguard availability. Wait for approval. Then `uv add` /
+   `pnpm add`.
+4. **Switch a tool.** uv, ruff, pyright, pnpm, vite, biome, FastAPI,
+   Vue, Postgres are locked. Don't propose Poetry, mypy, npm, esbuild,
+   ESLint, Prettier, Flask, React, MySQL.
+5. **Skip phases.** Don't deploy without Docker testing. Don't commit
+   without prod smoke. The 15-step cycle exists for reasons.
+6. **Edit lockfiles by hand.** `uv.lock`, `pnpm-lock.yaml` are
+   tool-managed.
+7. **Use `--no-verify` to bypass pre-commit.** If a hook is wrong, fix
+   the hook or the file.
+8. **Hardcode secrets.** Never. Even with a comment.
+9. **Add infrastructure.** No Terraform, no Pulumi, no Kubernetes.
+   Railway's abstraction is the point.
+10. **Add a staging environment.** Local + Docker + Prod is the full
+    pipeline.
+
+## Always
+
+1. **Read `AGENTS.md` first** to know the current phase.
+2. **Update `AGENTS.md`** after every phase transition.
+3. **Run `just test`** before declaring a feature complete.
+4. **Run `just smoke`** after every Railway deploy.
+5. **Ask if a request is ambiguous** rather than guessing.
+6. **Report what you actually did**, including failures. No "all
+   tests pass" if you didn't run them.
+
+## Communication style
+
+- When proposing a tool/dep/architecture change, present it as a
+  proposal with options and tradeoffs, not as a fait accompli.
+- When the user asks for something out-of-phase, say so politely:
+  "We're in SCAFFOLD; deploying now would skip FEATURE and DOCKER
+  phases. Want to proceed anyway, or finish the current phase first?"
+- When a task succeeds, summarize what was done in 2–3 lines.
+- When a task fails, surface the failure with the error and proposed
+  next step.
+
+## If unsure, ask
+
+The single-developer workflow has no human review process. The agent's
+job is to surface ambiguity early, not to make silent assumptions and
+discover them later in production.

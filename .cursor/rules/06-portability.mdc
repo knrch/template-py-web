@@ -1,0 +1,71 @@
+---
+description: Cloud portability rules. Keep app code free of Railway-specific assumptions.
+alwaysApply: true
+---
+# Portability
+
+Railway is the deploy target, but the app code stays cloud-agnostic.
+Switching to Fly, Render, Hetzner, or self-hosted should be a weekend,
+not a quarter. The cost of this discipline is near zero — these are
+twelve-factor practices anyway.
+
+## Standard env vars only
+
+App code reads only standard names:
+- `DATABASE_URL`
+- `REDIS_URL` (if used)
+- `PORT` (HTTP listen port)
+- `LOG_LEVEL`
+- `SENTRY_DSN`
+- `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`
+
+App code MUST NOT read `RAILWAY_*`, `RENDER_*`, `FLY_*` directly. If
+Railway-specific behavior is needed (e.g., reading `RAILWAY_GIT_COMMIT_SHA`),
+do it in `config.py` and expose it through Settings as a generic
+`git_sha` field — so swapping the source is a one-file change.
+
+## Twelve-factor essentials
+
+1. **Codebase** — single repo (you're already doing this)
+2. **Dependencies** — explicit via uv.lock / pnpm-lock.yaml
+3. **Config** — env vars, never hardcoded
+4. **Backing services** — connect via URL, swap by changing the URL
+5. **Build, release, run** — Docker handles this
+6. **Processes** — stateless. State goes to DB / object storage.
+7. **Port binding** — app listens on `$PORT`
+8. **Concurrency** — scale via process count, not threads-of-doom
+9. **Disposability** — boot fast, shut down cleanly
+10. **Dev/prod parity** — Chainguard images locally and in prod
+11. **Logs** — write to stdout, let the platform aggregate
+12. **Admin processes** — one-off scripts via `uv run python -m app.scripts.foo`
+
+## Filesystem
+
+The container filesystem is **ephemeral**. Never write user-uploaded
+content, generated files, or anything that should survive a restart to
+local disk. Use object storage.
+
+## Object storage
+
+Use **S3-compatible** clients (`boto3` with `endpoint_url`). This works
+unchanged across S3, R2, B2, Wasabi, MinIO, DigitalOcean Spaces, and
+self-hosted. Switching providers = changing the env var.
+
+## Railway-specific stays in railway.toml
+
+Anything Railway-flavored — build commands, healthcheck path, replicas,
+cron schedules — belongs in `railway.toml`. Never in Python or Vue code.
+
+## The escape hatch
+
+`deploy/fly.toml.example` is included as a working Fly Machines config.
+Not used unless you need to leave Railway. Its existence proves
+portability and gives you a 1-hour migration path if Railway has an
+outage you can't wait through.
+
+## Forbidden
+
+- `import boto3; s3 = boto3.client('s3')` without `endpoint_url` from config
+- Reading platform-specific env vars in app code (use config.py adapter)
+- Writing files anywhere outside `/tmp` at runtime
+- Assuming a specific instance count or single-instance lock semantics

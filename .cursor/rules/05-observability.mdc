@@ -1,0 +1,77 @@
+---
+description: Observability requirements. Apply when adding logging, errors, or monitoring.
+alwaysApply: true
+---
+# Observability
+
+Three pillars, all free-tier-friendly. Without these, "test in
+production" is wishful thinking.
+
+## Structured logging
+
+- Backend: **structlog** configured in `backend/src/app/logging.py` to
+  emit JSON to stdout. Every log line includes:
+  - `timestamp` (ISO 8601, UTC)
+  - `level`
+  - `event` (the message)
+  - `request_id` (added by middleware on every request)
+  - `user_id` (when known)
+- Frontend: errors and warnings only — too much logging from browsers
+  is noise. Use Sentry breadcrumbs for trace context, not logs.
+- Railway captures stdout. `just logs` tails them locally via
+  `railway logs --json | jq`.
+
+Forbidden: bare `print(...)`, `logging.getLogger(...)` without going
+through structlog config. `console.log` in committed frontend code.
+
+## Error tracking (Sentry)
+
+- Free tier is generous — use it.
+- Backend: `sentry-sdk[fastapi]` initialized in `main.py` from
+  `Settings.sentry_dsn`. If the DSN is unset, init is a no-op (so dev
+  doesn't pollute prod project).
+- Frontend: `@sentry/vue` initialized in `main.ts`. Tag releases with
+  the git SHA so source maps map correctly.
+- Set `traces_sample_rate=0.1` initially. Raise if you have budget.
+
+## Health endpoint
+
+Every backend exposes `GET /health`. It returns 200 with:
+
+```json
+{"status": "ok", "version": "<git-sha>", "checks": {"db": "ok"}}
+```
+
+The endpoint:
+- Pings the DB with `SELECT 1`
+- Does NOT require auth
+- Does NOT log every request (Railway's healthcheck hits it constantly)
+- Responds in <100ms
+
+This endpoint is what `smoke.sh` and Railway's healthcheck call.
+
+## Uptime monitoring
+
+**BetterStack** monitors `/health` every minute. Configure in your
+BetterStack account, not in code. Add the monitor URL to `SECRETS.md`.
+
+Alerts go to: your phone (push notifications). Not email — email is for
+async, alerts are for sync.
+
+## What goes in logs vs Sentry vs Metrics
+
+- **Logs**: events, request flow, debugging context
+- **Sentry**: exceptions, errors, performance regressions
+- **Metrics** (later, if needed): rates, latencies, business KPIs
+
+For a single-dev shop you usually don't need metrics until traffic
+grows. Logs + Sentry covers 90% of "what's wrong?" Don't add Prometheus
+prematurely.
+
+## Forbidden
+
+- Logging request bodies that could contain PII or secrets
+- Logging the entire `Settings` object
+- `Sentry.captureException(e)` and then re-raising — let the framework
+  middleware handle reporting once, not twice
+- Healthcheck endpoints behind auth (Railway can't reach them)

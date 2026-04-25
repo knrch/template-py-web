@@ -1,0 +1,99 @@
+---
+description: Docker conventions. Apply when editing Dockerfiles or compose files.
+globs: "**/Dockerfile,**/docker-compose*.yml,**/.dockerignore"
+---
+# Docker
+
+## Multi-stage Chainguard pattern
+
+Every Dockerfile uses a multi-stage build:
+1. **Builder** stage on `cgr.dev/chainguard/<lang>:latest-dev` — has
+   shell, package manager, build tools.
+2. **Runtime** stage on `cgr.dev/chainguard/<lang>:latest` — distroless,
+   nonroot, no shell.
+
+Copy only what's needed from builder to runtime: the venv (Python),
+the built `dist/` (Node), or the compiled binary (Go/Rust).
+
+## Standard backend Dockerfile (Python + uv)
+
+```dockerfile
+# syntax=docker/dockerfile:1.7
+FROM cgr.dev/chainguard/python:latest-dev AS builder
+WORKDIR /app
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+COPY . .
+RUN uv sync --frozen --no-dev
+
+FROM cgr.dev/chainguard/python:latest
+WORKDIR /app
+ENV PATH="/app/.venv/bin:$PATH"
+COPY --from=builder /app /app
+EXPOSE 8000
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", \
+            "--host", "0.0.0.0", "--port", "8000"]
+```
+
+## Standard frontend Dockerfile (Vue + pnpm + nginx)
+
+```dockerfile
+# syntax=docker/dockerfile:1.7
+FROM cgr.dev/chainguard/node:latest-dev AS builder
+WORKDIR /app
+RUN npm install -g pnpm@9
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM cgr.dev/chainguard/nginx:latest
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 8080
+```
+
+(Note: pnpm bootstrap via `npm install -g pnpm@9` is the cleanest path
+on Chainguard's Node image. Pin the pnpm major version explicitly.)
+
+## .dockerignore is mandatory
+
+Every Dockerfile has a sibling `.dockerignore`. At minimum:
+```
+.git
+.venv
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+dist
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+```
+
+## docker-compose.yml
+
+Local development only — never used to deploy. Includes:
+- App services with `build:` referencing the Dockerfile
+- Postgres with a named volume
+- Healthchecks on every service
+- `depends_on: condition: service_healthy` for ordering
+
+## Forbidden
+
+- `FROM python:3.x` or any non-Chainguard base
+- `USER root` in production stage (only in builder, only if needed)
+- `ADD <url>` — use multi-stage with verified downloads
+- `latest` tags without an `@sha256:` pin in production deployments
+- `RUN curl ... | sh` — see `02-supply-chain.mdc`
+- `RUN apt-get update && apt-get install ...` (no apt in Chainguard;
+  use `apk add` in `wolfi-base` if absolutely necessary)
+- Building secrets into the image — use BuildKit `--mount=type=secret`

@@ -1,0 +1,84 @@
+---
+description: Supply-chain security rules. Apply to all dependency, container, and CI changes.
+alwaysApply: true
+---
+# Supply Chain
+
+This project follows a defense-in-depth supply-chain posture. Every rule
+here is enforced — not aspirational.
+
+## Container base images
+
+Only `cgr.dev/chainguard/*` images are permitted. Forbidden: `python:3.x`,
+`node:20`, `alpine`, `debian`, `ubuntu`, `bitnami/*`, `bullseye`, `slim`.
+
+The dev variant is `:latest-dev` (has shell, package manager, `uv`/`pip`).
+The minimal variant is `:latest` (no shell, no package manager). Use
+multi-stage builds: install in `-dev`, copy artifacts to `:latest`.
+
+The Chainguard Python `:latest-dev` image already includes `uv`, so no
+separate uv install step is needed.
+
+Production stage runs as the `nonroot` user (UID 65532). Do not switch
+to root in the production stage. If `apk add` is needed during build,
+use `USER root` in the dev stage only.
+
+## Dependency lockfiles
+
+- Python: `uv.lock` is committed and authoritative. Allowed installs:
+  - `uv sync --frozen` (CI, Docker, fresh clone)
+  - `uv add <pkg>` (interactive, with user approval)
+  - `uv lock --upgrade-package <pkg>` (interactive, with user approval)
+- JS: `pnpm-lock.yaml` is committed and authoritative. Allowed installs:
+  - `pnpm install --frozen-lockfile` (CI, Docker, fresh clone)
+  - `pnpm add <pkg>` (interactive, with user approval)
+
+`pip install`, `npm install`, `yarn install` are forbidden anywhere —
+including throwaway scripts and Dockerfiles.
+
+## Network install patterns
+
+The `curl <url> | sh` pattern is forbidden in Dockerfiles, scripts, and
+CI. If a tool requires it for installation, propose an alternative
+(Chainguard image, Wolfi package, or pinned download with checksum).
+
+GitHub Actions must be pinned. `uses: actions/checkout@v5` is acceptable
+(major version with security commitments). `@main` or `@master` is not.
+Prefer pinning to a SHA for third-party actions.
+
+## Pre-commit checks (blocking)
+
+Configured in `lefthook.yml`:
+- `gitleaks` scans staged content for secrets — blocks on detection
+- `ruff check` and `ruff format --check` on Python diff
+- `biome check` on JS/TS diff
+- `hadolint` on Dockerfile diff
+- `shellcheck` on `.sh` diff
+
+A commit cannot be made if any of the above fail. Do not advise the user
+to bypass with `--no-verify`. If a check is failing wrongly, fix the
+check or the file — don't bypass.
+
+## CI checks
+
+- `cosign verify` against the Chainguard images used in Dockerfiles
+- `pip-audit` against `uv.lock`
+- `pnpm audit --prod`
+- `osv-scanner` as a backstop (catches both ecosystems)
+- `syft` produces an SBOM artifact attached to every CI run
+
+## Renovate
+
+`renovate.json` configures Renovate to:
+- Auto-merge dev-tooling minor/patch updates after CI passes
+- Open PRs (in this repo only — overrides the no-PR rule for bot-driven
+  dep updates) for app-dep major versions
+- Pin GitHub Actions to SHAs
+
+## Forbidden practices
+
+- Editing `uv.lock` or `pnpm-lock.yaml` by hand
+- Committing `.env` or any file matching `*.pem`, `*.key`, `id_rsa*`
+- Hardcoding API keys or tokens in source, even as "TODO replace later"
+- Running `chmod -R` in Dockerfiles
+- `ADD <url>` in Dockerfiles (use multi-stage with explicit verification)

@@ -1,0 +1,72 @@
+---
+description: Vue / TypeScript frontend conventions. Apply when editing frontend code.
+globs: frontend/**/*.{vue,ts,tsx,js,jsx}
+---
+# Frontend (Vue 3 + TypeScript)
+
+## Vue conventions
+
+- **Composition API with `<script setup lang="ts">`.** Options API and
+  non-setup composition style are forbidden in new code.
+- One component per `.vue` file. File name = component name in
+  PascalCase (`UserProfile.vue`).
+- Props typed via `defineProps<{...}>()` generics. No runtime prop
+  type declarations.
+- Emits typed via `defineEmits<{...}>()`. No string-array form.
+
+## TypeScript
+
+- `tsconfig.json` runs in **strict mode**. `any` is a code smell;
+  every `any` needs a comment explaining why.
+- Prefer `type` aliases over `interface` unless declaration merging is
+  actually needed.
+- API response types are **generated** from the backend schema (later
+  enhancement: `openapi-typescript`). For now, hand-mirror them in
+  `src/types/api.ts` and keep in sync.
+
+## State management
+
+- **No state management library** until justified by complexity.
+  `ref` + `provide`/`inject` covers most needs in a single-dev app.
+- If state grows enough to need Pinia, write an ADR first explaining
+  why component-local + provide/inject didn't suffice.
+- Server state belongs in `@tanstack/vue-query` (only when fetching
+  becomes complex enough to justify it — usually around the 3rd or 4th
+  cache-invalidation bug you hit).
+
+## API calls
+
+- Single `fetch` wrapper in `src/api/client.ts` that:
+  - Adds `Content-Type: application/json` and credentials
+  - Maps non-2xx to typed errors
+  - Adds Sentry breadcrumb for every request
+- Never `fetch()` directly from components.
+- Backend URL comes from `import.meta.env.VITE_API_URL`. In dev, Vite
+  proxy handles same-origin.
+
+## Styling
+
+- Default to scoped `<style>` in components.
+- Tailwind is acceptable if added in PLAN — write an ADR if added
+  later.
+- No CSS-in-JS, no styled-components.
+
+## Routing
+
+- `vue-router` for any app with more than two views.
+- Lazy-load route components (`() => import('./X.vue')`).
+
+## Errors and observability
+
+- `@sentry/vue` is initialized in `main.ts` from `VITE_SENTRY_DSN`.
+- `app.config.errorHandler` reports to Sentry.
+- Never `console.error` and continue — surface errors to the user via
+  a toast / inline message.
+
+## Forbidden
+
+- jQuery, lodash (use native ES2024+; `lodash-es` only with ADR)
+- `eval`, `new Function`, dangerouslySetInnerHTML equivalents
+- Storing tokens in `localStorage` (use HTTP-only cookies via backend)
+- Editing `package-lock.json` or `yarn.lock` (we use pnpm)
+- React patterns: `useState`, `useEffect`, JSX in `.vue` files

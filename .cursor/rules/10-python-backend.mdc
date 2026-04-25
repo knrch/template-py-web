@@ -1,0 +1,85 @@
+---
+description: Python backend conventions. Apply when editing backend code.
+globs: backend/**/*.py
+---
+# Python Backend
+
+## FastAPI conventions
+
+- **Async by default.** Endpoints, DB calls, HTTP clients — all async.
+  Sync code only if a library forces it; wrap in `run_in_threadpool`.
+- **Composition API**: routers per feature, not per HTTP verb.
+  `users/router.py`, `orders/router.py`. Each owns its endpoints,
+  schemas, and service logic.
+- **Pydantic v2 schemas** for all request/response bodies. No raw
+  dicts crossing the API boundary.
+- **Dependency injection via `Depends`**, not module-level singletons.
+  This makes testing far easier.
+- **One `APIRouter` per feature**, mounted in `main.py`.
+
+## Project layout
+
+```
+backend/src/app/
+  main.py             # FastAPI app, middleware, router mounting
+  config.py           # pydantic-settings
+  logging.py          # structlog config
+  db.py               # async engine, session dependency
+  health.py           # /health endpoint
+  <feature>/
+    router.py         # APIRouter
+    schemas.py        # pydantic models
+    service.py        # business logic
+    models.py         # SQLAlchemy ORM
+    tests/            # co-located tests
+```
+
+## Type hints
+
+- Type everything. `def foo(x):` is forbidden; `def foo(x: int) -> str:`
+  is required.
+- Use Python 3.14 syntax: `list[int]` not `List[int]`, `int | None`
+  not `Optional[int]`, `type X = ...` for type aliases.
+- `pyright` runs in CI in strict mode. Don't `# type: ignore` without
+  a comment explaining why.
+
+## Error handling
+
+- Raise `HTTPException(status_code, detail)` for client-facing errors.
+- Domain errors use custom exception classes (`UserNotFound`,
+  `InsufficientFunds`) caught by an exception handler in `main.py`
+  that maps them to HTTP responses.
+- **Never** catch `Exception` and silently log. Either handle it or
+  let it bubble to Sentry.
+- **Never** swallow exceptions in service layer to "make tests pass."
+  Fix the test or the code.
+
+## Logging
+
+```python
+import structlog
+log = structlog.get_logger()
+
+log.info("user_created", user_id=user.id, email=user.email)
+```
+
+- Event names are `snake_case` past-tense facts.
+- Pass structured kwargs, not f-strings.
+- Forbidden: `log.info(f"User {user.id} created")` — defeats structured
+  logging.
+
+## Database
+
+- Use SQLAlchemy 2.0 async style: `async with session.begin(): ...`
+- Sessions come from a `Depends` factory, not module globals.
+- Migrations: every schema change is an Alembic revision. No raw SQL
+  in app code for DDL.
+- Use `select(...)` not `query(...)`. Legacy 1.x syntax is forbidden.
+
+## Forbidden patterns
+
+- Global mutable state (caches, connection pools at module level)
+- `time.sleep()` in async code (use `asyncio.sleep`)
+- Synchronous `requests` library (use `httpx` async)
+- Catching exceptions to set a default value silently
+- Unbounded `for` loops over remote pagination (always cap or paginate)

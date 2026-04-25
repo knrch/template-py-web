@@ -1,0 +1,67 @@
+---
+description: Testing strategy and what tests to write when implementing features.
+alwaysApply: true
+---
+# Testing
+
+This project compensates for "no staging environment" with disciplined
+testing at three layers: unit, integration, and production smoke.
+
+## Backend (pytest + hypothesis)
+
+- Unit tests live next to features in `backend/tests/`, mirroring the
+  source layout: `src/app/users.py` → `tests/test_users.py`.
+- Use **hypothesis** for any function with non-trivial input space —
+  parsers, validators, transformations, anything with edge cases. It
+  generates inputs you wouldn't think of and shrinks failures to a
+  minimal example.
+- Use **pytest fixtures** for setup; prefer factory fixtures over
+  `setUp`/`tearDown` patterns.
+- Mock at the boundary (HTTP calls, DB writes during pure unit tests),
+  but prefer real Postgres in `docker-compose.yml` for integration
+  tests via `pytest-postgres` or testcontainers.
+
+Coverage floor: **70% on business logic** (everything in `src/app/`
+excluding `main.py`, `config.py`, `logging.py`). Don't chase 100%.
+Glue code, framework wiring, and trivial getters don't need tests.
+
+## Frontend (vitest + playwright)
+
+- Vitest for component logic, composables, utilities. Co-locate as
+  `Component.vue` + `Component.test.ts`.
+- Playwright for **one** smoke test that covers the critical path —
+  load the app, log in (if applicable), perform the most important
+  user action, see the expected result.
+- Do NOT try to E2E-cover every screen. Smoke is a heart-monitor, not
+  a full physical exam.
+
+## When to write tests
+
+- During FEATURE phase, write tests **as you write the feature**, not
+  after. A feature is not "done" until tests exist for the new behavior.
+- Bug fixes: write a failing test that reproduces the bug FIRST. Then
+  fix. The test prevents regression.
+- Refactors: existing tests must continue to pass. If they don't, the
+  refactor changed behavior — that's a feature, not a refactor.
+
+## Production smoke (`smoke.sh`)
+
+Runs after Railway deploy, before COMMIT. The script:
+1. Curls `/health` — must return 200 with expected JSON shape
+2. Curls 2–3 critical-path endpoints
+3. Checks Sentry hasn't fired any new error categories in the last 60s
+4. Returns 0 if all pass, non-zero on any failure
+
+If smoke fails, the workflow is: investigate, fix, redeploy, re-smoke.
+**Do not commit on a failing smoke**, ever. Roll back the Railway
+deployment first if needed (`railway redeploy --previous`).
+
+## Running tests
+
+- `just test` — runs backend unit + frontend unit
+- `just test-int` — runs integration tests (needs docker-compose up)
+- `just test-e2e` — runs Playwright (needs frontend running)
+- `just smoke` — runs `smoke.sh` against `$SMOKE_URL` (defaults to prod)
+
+Tests run in CI on every push to main. Pre-push hook runs `just test`
+locally — fast feedback before pushing.

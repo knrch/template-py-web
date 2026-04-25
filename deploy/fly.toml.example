@@ -1,0 +1,33 @@
+# Fly.io escape hatch. Not used unless leaving Railway.
+# Update <PROJECT_NAME> and run: flyctl launch --copy-config --no-deploy
+
+app = "<PROJECT_NAME>"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+[env]
+  PORT = "8080"
+  LOG_LEVEL = "INFO"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+# Set secrets with: flyctl secrets set DATABASE_URL=... SENTRY_DSN=...

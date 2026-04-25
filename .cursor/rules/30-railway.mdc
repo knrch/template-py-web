@@ -1,0 +1,92 @@
+---
+description: Railway deployment, env management, log fetching. Apply when deploying or debugging production.
+---
+# Railway
+
+Railway is the only cloud target. Production-only — no staging.
+
+## railway.toml
+
+Project config lives in `railway.toml` (committed). It defines:
+- `build` — Docker build command and Dockerfile path
+- `deploy` — start command, healthcheck path, replicas
+- `cron` — for batch jobs
+
+Never configure these in the Railway dashboard. If a setting can't be
+expressed in `railway.toml`, write an ADR explaining why and add a
+comment in the dashboard pointing to the ADR.
+
+## Env vars
+
+Set via CLI for an audit trail:
+
+```bash
+railway variables --set DATABASE_URL=postgres://...
+railway variables --set SENTRY_DSN=https://...
+railway variables --set LOG_LEVEL=INFO
+```
+
+To dump all current vars: `railway variables`. Pipe through `gpg` if
+you need to share them safely.
+
+## Deploy
+
+```bash
+just deploy        # railway up
+just deploy-status # railway status
+just logs          # railway logs --json | jq
+```
+
+`just deploy` does:
+1. Confirms working tree is clean (no uncommitted changes — but commits
+   come AFTER smoke, so this is checking against the last commit).
+2. Confirms tests pass locally (`just test`).
+3. Runs `railway up`.
+4. Waits for the deployment to become active.
+5. Prints the public URL.
+
+## Healthcheck
+
+Every service exposes `/health`. Configure in `railway.toml`:
+```toml
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+```
+
+Railway will not route traffic to a deployment that fails the healthcheck.
+
+## Rollback
+
+If smoke fails:
+```bash
+railway redeploy --previous
+```
+
+This rolls to the prior deployment within seconds. Then debug locally,
+not in prod.
+
+## Migrations
+
+Run as a Railway pre-deploy step:
+```toml
+[deploy]
+preDeployCommand = "alembic upgrade head"
+```
+
+If migrations fail, the deploy aborts before promoting the new image.
+
+## Logs
+
+- `railway logs --tail` for live tail
+- `railway logs --json` for structured (we emit JSON via structlog, so
+  this is what you want for parsing)
+- `railway logs --json | jq 'select(.level=="ERROR")'` for error filter
+
+## Forbidden
+
+- Setting env vars in the Railway dashboard (use CLI)
+- Multiple environments (no staging — single-dev workflow)
+- SSH-into-container debugging (Chainguard runtime has no shell anyway;
+  reproduce locally with `docker compose up`)
+- Running migrations manually after deploy (use preDeployCommand)

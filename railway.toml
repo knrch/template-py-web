@@ -1,0 +1,17 @@
+# Railway production config. Single environment.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+buildContext = "backend"
+
+[deploy]
+startCommand = "/app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+preDeployCommand = "alembic upgrade head"
+
+# For multi-service: define `services` here when you split frontend out.
+# Until then, the frontend is served by Railway's static-site or as a
+# separate Railway service with its own railway.toml.

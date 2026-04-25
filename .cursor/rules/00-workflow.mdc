@@ -1,0 +1,61 @@
+---
+description: Project workflow phases and the rules that govern transitions between them.
+alwaysApply: true
+---
+# Workflow
+
+This project follows a single-developer, single-environment workflow. The
+canonical 15-step cycle is:
+
+  1.  REQUIREMENTS    — high-level requirements drafted by the user
+  2.  PLAN            — agent produces a plan, asks clarifying questions
+  3.  CLARIFY         — user answers, provisions API keys / CLIs
+  4.  ARCH            — optional comparison of architecture choices
+  5.  REPO            — GitHub repo initialized and linked
+  6.  SCAFFOLD        — project skeleton built from this template
+  7.  TOOLING         — local test, lint, package tools confirmed
+  8.  FEATURE         — implement the next feature
+  9.  LOCAL           — run and exercise locally outside Docker
+  10. DOCKER          — build and run docker-compose stack locally
+  11. RAILWAY         — deploy to Railway production
+  12. (reserved — Railway alone is the cloud target)
+  13. SMOKE           — run smoke.sh against production
+  14. COMMIT          — commit and push to main
+  15. ITERATE         — repeat 8–14 for next feature
+
+## Phase tracker
+
+The current phase is recorded in `AGENTS.md` under `## Current Phase`. You
+MUST read AGENTS.md before suggesting any action and align with it.
+
+If a request is out-of-phase (e.g., asking to deploy during SCAFFOLD), say
+so and recommend completing prerequisite phases first. Do not silently
+skip phases.
+
+## Phase transition rules
+
+- FEATURE → LOCAL: code compiles, types check, unit tests pass.
+- LOCAL → DOCKER: `just docker-up` runs cleanly, healthcheck passes.
+- DOCKER → RAILWAY: lockfiles unchanged since last commit, CI is green.
+- RAILWAY → SMOKE: deploy returned a public URL, app responds to /health.
+- SMOKE → COMMIT: every check in `smoke.sh` returned 0.
+- COMMIT only happens AFTER prod smoke passes. Never commit on red.
+
+## Branch and PR policy
+
+Branch policy: **main only**. Never create branches. Never open PRs. The
+user is a single-developer team; PRs add overhead with no review benefit.
+
+Exception: if the user explicitly asks for a feature branch (e.g., for a
+risky experiment), honor it but flag it as a deviation.
+
+## Update AGENTS.md as you go
+
+After every phase transition, update AGENTS.md:
+- `## Current Phase` to the new phase
+- `## Last Action` to a one-line summary
+- `## Next Action` to what comes next
+- `## Open Decisions` — add new ones, check off resolved ones
+
+This file is the single source of truth for "where are we." Future-you
+and other agents read it first.

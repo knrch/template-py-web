@@ -1,0 +1,65 @@
+---
+description: The locked tech stack. Do not propose alternatives without explicit user approval.
+alwaysApply: true
+---
+# Tech Stack (locked)
+
+These choices are deliberately closed. Do not propose alternatives unless
+the user explicitly opens the question.
+
+## Backend (Python)
+
+- Runtime: Python 3.14, pinned in `.tool-versions`
+- Package manager: **uv** (only)
+- Linter / formatter: **ruff** (only)
+- Type checker: **pyright** (not mypy)
+- Web framework: **FastAPI**
+- ORM: **SQLAlchemy 2.0** (async) + **Alembic** for migrations
+- DB driver: **asyncpg** (Postgres)
+- Settings: **pydantic-settings**
+- Logging: **structlog** → JSON to stdout
+- Errors: **sentry-sdk**
+- Test runner: **pytest** + **hypothesis** (property-based)
+
+Forbidden in backend code: `pip install`, `poetry`, `requirements.txt`,
+`pipenv`, `mypy`, `black`, `flake8`, `isort`, plain `logging` for app
+logs (structlog wraps it).
+
+## Frontend (TypeScript)
+
+- Runtime: Node 24 LTS, pinned in `.tool-versions`
+- Package manager: **pnpm** (only)
+- Build tool: **vite**
+- Framework: **Vue 3** (composition API, `<script setup>`)
+- Linter / formatter: **biome** (replaces eslint + prettier)
+- Test runner: **vitest** (unit) + **playwright** (one E2E smoke)
+- Errors: **@sentry/vue**
+
+Forbidden in frontend code: `npm install`, `yarn`, `eslint`, `prettier`,
+React, Pinia (until justified by complexity), global state without a
+written ADR.
+
+## Infrastructure
+
+- Container base: **`cgr.dev/chainguard/*`** (only)
+- Local: **docker-compose**
+- Deploy: **Railway** (production only, no staging)
+- Tool versions: **mise** with `.tool-versions`
+- Task runner: **just** (`justfile`)
+- Pre-commit: **lefthook**
+- Secret scanning: **gitleaks** (blocks commit on detection)
+- SBOM: **syft**
+- Image verification: **cosign**
+
+## Adding a dependency
+
+Before adding any dependency, propose it with:
+1. Package name and version
+2. Why it's needed and what existing dep doesn't already cover it
+3. Link to source repo and license
+4. Whether it's available as a Chainguard / Wolfi package
+5. Rough install footprint (transitive deps, install size)
+
+If the user approves, then run `uv add <pkg>` or `pnpm add <pkg>`. Never
+edit `pyproject.toml` or `package.json` by hand to add a dep — let the
+tool resolve and lock it.
