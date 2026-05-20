@@ -56,6 +56,7 @@ open http://localhost:5173
 | Smoke prod | `just smoke` |
 | Tail prod logs | `just logs` |
 | New migration | `just db-revision "describe change"` |
+| Refresh cursor rules from harness | `just cursor-sync` |
 
 ## Pre-commit bypass envs (emergency only)
 
