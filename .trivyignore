@@ -1,0 +1,10 @@
+# CVEs accepted with documented reason. Each entry MUST include:
+#   - the CVE
+#   - the affected base image
+#   - a link to the upstream tracker
+#   - a monthly re-check date
+#
+# Example:
+#   # CVE-XXXX-YYYYY — unfixed in nginx:alpine (upstream tracker: ...).
+#   # Review by 2026-06-01.
+#   CVE-XXXX-YYYYY

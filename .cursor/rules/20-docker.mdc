@@ -4,26 +4,47 @@ globs: "**/Dockerfile,**/docker-compose*.yml,**/.dockerignore"
 ---
 # Docker
 
-## Multi-stage Chainguard pattern
+## Digest-pinned multi-stage pattern
 
-Every Dockerfile uses a multi-stage build:
-1. **Builder** stage on `cgr.dev/chainguard/<lang>:latest-dev` — has
-   shell, package manager, build tools.
-2. **Runtime** stage on `cgr.dev/chainguard/<lang>:latest` — distroless,
-   nonroot, no shell.
+Every Dockerfile uses a multi-stage build and digest-pinned bases. The
+runtime stage runs as a non-root user. Builder may use root only if a
+package install demands it.
 
-Copy only what's needed from builder to runtime: the venv (Python),
-the built `dist/` (Node), or the compiled binary (Go/Rust).
+Approved bases (see `02-supply-chain.mdc` for the canonical list and
+the audit policy that depends on these strings):
+
+| Purpose | Base |
+|---|---|
+| Python backend | `python:3.14-slim@sha256:...` |
+| Node build stage | `node:24-alpine@sha256:...` |
+| Static serve (built SPA) | `nginx:alpine@sha256:...` |
+| Reverse proxy | `caddy:2-alpine@sha256:...` |
+| Postgres (compose only) | `postgres:16-alpine@sha256:...` |
+
+Bootstrap-time placeholder is `@sha256:PIN_ME_AT_BOOTSTRAP`. Resolve
+to a real digest with:
+
+```bash
+docker pull python:3.14-slim
+docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
+```
+
+…then commit the digest into the Dockerfile, `docker-compose.yml`, and
+the image list inside `scripts/audit-all.sh`. The three must agree.
 
 ## Standard backend Dockerfile (Python + uv)
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM cgr.dev/chainguard/python:latest-dev AS builder
+FROM python:3.14-slim@sha256:PIN_ME_AT_BOOTSTRAP AS builder
 WORKDIR /app
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# uv from the official binary stage (also digest-pinned)
+COPY --from=ghcr.io/astral-sh/uv:0.11.8@sha256:PIN_ME_AT_BOOTSTRAP /uv /uvx /usr/local/bin/
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
@@ -31,10 +52,13 @@ RUN uv sync --frozen --no-install-project --no-dev
 COPY . .
 RUN uv sync --frozen --no-dev
 
-FROM cgr.dev/chainguard/python:latest
+FROM python:3.14-slim@sha256:PIN_ME_AT_BOOTSTRAP
 WORKDIR /app
-ENV PATH="/app/.venv/bin:$PATH"
-COPY --from=builder /app /app
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+RUN useradd --create-home --uid 1000 app
+COPY --from=builder --chown=app:app /app /app
+USER app
 EXPOSE 8000
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", \
             "--host", "0.0.0.0", "--port", "8000"]
@@ -44,25 +68,37 @@ ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", \
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-FROM cgr.dev/chainguard/node:latest-dev AS builder
+FROM node:24-alpine@sha256:PIN_ME_AT_BOOTSTRAP AS builder
 WORKDIR /app
-RUN npm install -g pnpm@9
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM cgr.dev/chainguard/nginx:latest
+FROM nginx:alpine@sha256:PIN_ME_AT_BOOTSTRAP
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
 ```
 
-(Note: pnpm bootstrap via `npm install -g pnpm@9` is the cleanest path
-on Chainguard's Node image. Pin the pnpm major version explicitly.)
+(corepack is the cleanest way to pin pnpm on Node — no `npm install -g`
+network round-trip and the version is explicit.)
+
+## Caddy reverse proxy (optional, web template)
+
+```dockerfile
+FROM caddy:2-alpine@sha256:PIN_ME_AT_BOOTSTRAP
+COPY Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80
+```
+
+The Caddyfile typically routes `/api/*` to backend, `/*` to frontend.
 
 ## .dockerignore is mandatory
 
 Every Dockerfile has a sibling `.dockerignore`. At minimum:
+
 ```
 .git
 .venv
@@ -71,6 +107,7 @@ __pycache__
 *.pyc
 .pytest_cache
 .ruff_cache
+.pnpm-store
 dist
 .env
 .env.*
@@ -83,17 +120,17 @@ dist
 
 Local development only — never used to deploy. Includes:
 - App services with `build:` referencing the Dockerfile
-- Postgres with a named volume
+- Postgres on `postgres:16-alpine@sha256:...` with a named volume
 - Healthchecks on every service
 - `depends_on: condition: service_healthy` for ordering
+- Optional `proxy` service behind a Compose profile
 
 ## Forbidden
 
-- `FROM python:3.x` or any non-Chainguard base
-- `USER root` in production stage (only in builder, only if needed)
+- Any `cgr.dev/chainguard/*` base (deprecated in this harness)
+- Bare tags without `@sha256:` (e.g. `python:3.14-slim` alone)
+- `USER root` in the runtime stage
 - `ADD <url>` — use multi-stage with verified downloads
-- `latest` tags without an `@sha256:` pin in production deployments
 - `RUN curl ... | sh` — see `02-supply-chain.mdc`
-- `RUN apt-get update && apt-get install ...` (no apt in Chainguard;
-  use `apk add` in `wolfi-base` if absolutely necessary)
 - Building secrets into the image — use BuildKit `--mount=type=secret`
+- Running the app as root in the runtime stage

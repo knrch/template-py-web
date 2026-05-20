@@ -35,7 +35,7 @@ do it in `config.py` and expose it through Settings as a generic
 7. **Port binding** — app listens on `$PORT`
 8. **Concurrency** — scale via process count, not threads-of-doom
 9. **Disposability** — boot fast, shut down cleanly
-10. **Dev/prod parity** — Chainguard images locally and in prod
+10. **Dev/prod parity** — the same digest-pinned images locally and in prod
 11. **Logs** — write to stdout, let the platform aggregate
 12. **Admin processes** — one-off scripts via `uv run python -m app.scripts.foo`
 

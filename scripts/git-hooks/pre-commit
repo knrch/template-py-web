@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Pre-commit hook for <PROJECT_NAME>:
+#   A) Gitleaks on staged blobs (SKIP_GITLEAKS / SKIP_STATIC_SCAN)
+#   B) Semgrep on staged Vue/TS/JS/Python files (SKIP_SEMGREP / SKIP_STATIC_SCAN)
+#   C) scripts/audit-all.sh when staged files imply lockfile scans or tooling refresh
+#
+# Install via lefthook (`just hooks-install` or `scripts/install-hooks.sh`).
+#
+# Bypass (emergency only):
+#   SKIP_STATIC_SCAN=1 — skips A and B
+#   SKIP_GITLEAKS=1 | SKIP_SEMGREP=1 — granular
+#   SKIP_AUDIT=1       — skips C only
+#   git commit --no-verify
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+SCRIPT_DIR="$REPO_ROOT/scripts"
+# shellcheck source=../_lib.sh
+source "$SCRIPT_DIR/_lib.sh"
+# shellcheck source=../_static_scan.sh
+source "$SCRIPT_DIR/_static_scan.sh"
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACMRT)"
+if [[ -z "$STAGED" ]]; then
+  exit 0
+fi
+
+SKIP_STATIC_SCAN="${SKIP_STATIC_SCAN:-0}"
+
+if [[ "$SKIP_STATIC_SCAN" == "1" ]]; then
+  echo "[pre-commit] SKIP_STATIC_SCAN=1 — skipping Gitleaks + Semgrep." >&2
+else
+  if [[ "${SKIP_GITLEAKS:-0}" != "1" ]]; then
+    run_gitleaks_git_staged || {
+      echo "[pre-commit] Gitleaks failed — fix or SKIP_GITLEAKS=1." >&2
+      exit 1
+    }
+  fi
+
+  if [[ "${SKIP_SEMGREP:-0}" != "1" ]]; then
+    run_semgrep_staged || {
+      echo "[pre-commit] Semgrep failed — fix or SKIP_SEMGREP=1." >&2
+      exit 1
+    }
+  fi
+fi
+
+if [[ "${SKIP_AUDIT:-0}" == "1" ]]; then
+  echo "[pre-commit] SKIP_AUDIT=1 set; skipping lockfile / trivy audit block." >&2
+  exit 0
+fi
+
+# Dependency manifests → supply-chain audit.
+DEPENDENCY_TRIGGERS=(
+  '^frontend/package\.json$'
+  '^frontend/pnpm-lock\.yaml$'
+  '^frontend/pnpm-workspace\.yaml$'
+  '^backend/pyproject\.toml$'
+  '^backend/uv\.lock$'
+  '(^|/)Dockerfile(\.[A-Za-z0-9_-]+)?$'
+  '^docker-compose\.ya?ml$'
+  '^\.trivyignore$'
+)
+
+# Changing these should run a **full** audit-all (full-tree gitleaks + semgrep).
+STATIC_TOOLING_TRIGGERS=(
+  '^\.gitleaks\.toml$'
+  '^\.semgrepignore$'
+  '^scripts/audit-all\.sh$'
+  '^scripts/_static_scan\.sh$'
+  '^scripts/_lib\.sh$'
+)
+
+NEEDS_AUDIT=0
+STATIC_REFRESH=0
+MATCHED=()
+while IFS= read -r file; do
+  [[ -n "$file" ]] || continue
+  for pat in "${STATIC_TOOLING_TRIGGERS[@]}"; do
+    if [[ "$file" =~ $pat ]]; then
+      STATIC_REFRESH=1
+      break
+    fi
+  done
+  for pat in "${DEPENDENCY_TRIGGERS[@]}"; do
+    if [[ "$file" =~ $pat ]]; then
+      NEEDS_AUDIT=1
+      MATCHED+=("$file")
+      break
+    fi
+  done
+done <<<"$STAGED"
+
+if [[ "$NEEDS_AUDIT" -eq 0 && "$STATIC_REFRESH" -eq 0 ]]; then
+  exit 0
+fi
+
+if [[ "$NEEDS_AUDIT" -eq 1 ]]; then
+  echo "[pre-commit] Dependency-related files staged:" >&2
+  printf '  %s\n' "${MATCHED[@]}" >&2
+fi
+if [[ "$STATIC_REFRESH" -eq 1 ]]; then
+  echo "[pre-commit] Static-audit tooling or config staged — full audit-all." >&2
+fi
+
+if [[ "$STATIC_REFRESH" -eq 1 ]]; then
+  echo "[pre-commit] Running scripts/audit-all.sh --with-images" >&2
+  echo "[pre-commit] Bypass with SKIP_AUDIT=1" >&2
+  if ! "$REPO_ROOT/scripts/audit-all.sh" --with-images; then
+    echo "" >&2
+    echo "[pre-commit] audit-all failed — commit aborted." >&2
+    exit 1
+  fi
+else
+  echo "[pre-commit] Running scripts/audit-all.sh --supply-chain-only --with-images" >&2
+  echo "[pre-commit] Bypass with SKIP_AUDIT=1" >&2
+  if ! "$REPO_ROOT/scripts/audit-all.sh" --supply-chain-only --with-images; then
+    echo "" >&2
+    echo "[pre-commit] audit-all failed — commit aborted." >&2
+    exit 1
+  fi
+fi

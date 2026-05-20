@@ -12,7 +12,10 @@ Production smoke is the gate before COMMIT. If smoke fails, you
    - Hit `/health` and confirm 200 + expected JSON
    - Hit 2–3 critical-path endpoints with realistic payloads
    - Confirm no new error types in Sentry within the last 60 seconds
-4. If any check fails, **stop**. Do not commit.
+4. Run `just audit` against the deployed lockfile/digests one more
+   time (cheap; catches anything that drifted between local commit
+   and the actually-deployed image).
+5. If any check fails, **stop**. Do not commit.
 
 ## On failure
 
@@ -29,6 +32,6 @@ Production smoke is the gate before COMMIT. If smoke fails, you
 ## On success
 
 1. Update `AGENTS.md`:
-   - `## Last Action` → "Prod smoke passed"
+   - `## Last Action` → "Prod smoke passed; audit clean"
    - `## Next Action` → "Commit and push"
 2. Proceed to COMMIT phase (`prompts/14-commit.md`).

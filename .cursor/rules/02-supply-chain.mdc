@@ -9,76 +9,122 @@ here is enforced — not aspirational.
 
 ## Container base images
 
-Only `cgr.dev/chainguard/*` images are permitted. Forbidden: `python:3.x`,
-`node:20`, `alpine`, `debian`, `ubuntu`, `bitnami/*`, `bullseye`, `slim`.
+Mainstream public images, digest-pinned. The full digest (`@sha256:...`)
+is required in every Dockerfile, `docker-compose.yml`, and any image
+list inside `scripts/audit-all.sh`. The tag alone (e.g. `python:3.14-slim`)
+is never enough.
 
-The dev variant is `:latest-dev` (has shell, package manager, `uv`/`pip`).
-The minimal variant is `:latest` (no shell, no package manager). Use
-multi-stage builds: install in `-dev`, copy artifacts to `:latest`.
+Approved bases (pin the digest, then track via Renovate):
 
-The Chainguard Python `:latest-dev` image already includes `uv`, so no
-separate uv install step is needed.
+- Python: `python:3.14-slim@sha256:...`
+- Node: `node:24-alpine@sha256:...`
+- nginx (static serve): `nginx:alpine@sha256:...`
+- Caddy (reverse proxy): `caddy:2-alpine@sha256:...`
+- Postgres (compose only): `postgres:16-alpine@sha256:...`
+- uv binary stage (when needed): `ghcr.io/astral-sh/uv:<ver>@sha256:...`
 
-Production stage runs as the `nonroot` user (UID 65532). Do not switch
-to root in the production stage. If `apk add` is needed during build,
-use `USER root` in the dev stage only.
+Forbidden: bare tags (`python:3.14-slim` with no digest), `latest`,
+`cgr.dev/chainguard/*` (deprecated in this harness), `bitnami/*`,
+random community images.
+
+Use multi-stage builds. Run as a non-root user in the runtime stage
+(`USER 1000:1000` or a named user). Builder stage may use root for
+`apk add` / `apt-get`; runtime stage must not.
 
 ## Dependency lockfiles
 
 - Python: `uv.lock` is committed and authoritative. Allowed installs:
   - `uv sync --frozen` (CI, Docker, fresh clone)
-  - `uv add <pkg>` (interactive, with user approval)
-  - `uv lock --upgrade-package <pkg>` (interactive, with user approval)
+  - `scripts/safe-uv.sh add <pkg>` (audited; rejects new advisories)
+  - `scripts/safe-uv.sh lock --upgrade` (audited)
 - JS: `pnpm-lock.yaml` is committed and authoritative. Allowed installs:
   - `pnpm install --frozen-lockfile` (CI, Docker, fresh clone)
-  - `pnpm add <pkg>` (interactive, with user approval)
+  - `scripts/safe-pnpm.sh add <pkg>` (audited; rejects new advisories)
 
-`pip install`, `npm install`, `yarn install` are forbidden anywhere —
-including throwaway scripts and Dockerfiles.
+`pip install`, `npm install`, `yarn install`, and bare `uv add` /
+`pnpm add` outside the safe-wrappers are forbidden — including
+throwaway scripts and Dockerfiles.
+
+The safe-wrappers snapshot the lockfile, run the operation, re-audit,
+and restore the lockfile if any new advisory of any severity is
+introduced.
 
 ## Network install patterns
 
-The `curl <url> | sh` pattern is forbidden in Dockerfiles, scripts, and
-CI. If a tool requires it for installation, propose an alternative
-(Chainguard image, Wolfi package, or pinned download with checksum).
+`curl <url> | sh` is forbidden in Dockerfiles, scripts, and CI. If a
+tool requires it, propose an alternative (Wolfi/Alpine package, distro
+package, or a pinned download with SHA verification).
 
-GitHub Actions must be pinned. `uses: actions/checkout@v5` is acceptable
-(major version with security commitments). `@main` or `@master` is not.
-Prefer pinning to a SHA for third-party actions.
+GitHub Actions are pinned. `actions/checkout@v5` is acceptable (major
+version with security commitments). `@main` or `@master` is not. Third-
+party actions must be pinned to a commit SHA.
 
 ## Pre-commit checks (blocking)
 
-Configured in `lefthook.yml`:
-- `gitleaks` scans staged content for secrets — blocks on detection
-- `ruff check` and `ruff format --check` on Python diff
-- `biome check` on JS/TS diff
-- `hadolint` on Dockerfile diff
-- `shellcheck` on `.sh` diff
+Configured in `lefthook.yml` and `scripts/git-hooks/pre-commit`:
+
+- `gitleaks git --staged -c .gitleaks.toml` — secrets on the staged diff
+- `semgrep` with `p/typescript` + `p/python` — SAST on staged source files
+- Conditional `scripts/audit-all.sh` when staged files touch lockfiles,
+  Dockerfiles, or the audit tooling itself
 
 A commit cannot be made if any of the above fail. Do not advise the user
 to bypass with `--no-verify`. If a check is failing wrongly, fix the
-check or the file — don't bypass.
+check, the allowlist (`.gitleaks.toml`, `.semgrepignore`, `.trivyignore`),
+or the file — don't bypass.
+
+Emergency bypass envs (documented; not for routine use):
+- `SKIP_STATIC_SCAN=1` — skips gitleaks + semgrep
+- `SKIP_GITLEAKS=1`, `SKIP_SEMGREP=1` — granular
+- `SKIP_AUDIT=1` — skips supply-chain audit only
+
+## scripts/audit-all.sh
+
+The orchestrator. Modes:
+
+- `scripts/audit-all.sh` — lockfile audits (osv-scanner, pip-audit,
+  pnpm audit) + full-tree gitleaks + semgrep
+- `--with-images` — additionally scan digest-pinned bases with Trivy
+  (HIGH/CRITICAL, OS packages, ignore-unfixed; gated by `.trivyignore`)
+- `--with-images-informational` — same scans, image findings do not
+  change the exit code (used in scheduled CI)
+- `--supply-chain-only` — lockfiles + Trivy only (used from the
+  pre-commit hook after staged gitleaks/semgrep already ran)
+
+Required tools: `osv-scanner`, `pip-audit`, `pnpm` (web template only),
+`uv`, `trivy`, `gitleaks`, `semgrep`. The wrappers never auto-install
+tools — they print `brew install …` hints and exit 127 if missing.
 
 ## CI checks
 
-- `cosign verify` against the Chainguard images used in Dockerfiles
-- `pip-audit` against `uv.lock`
-- `pnpm audit --prod`
-- `osv-scanner` as a backstop (catches both ecosystems)
-- `syft` produces an SBOM artifact attached to every CI run
+- Backend job: `uv sync --frozen` → ruff → pyright → pytest → pip-audit
+- Frontend job (web): pnpm install → eslint → vue-tsc → vitest →
+  `pnpm audit`
+- Static-scan job: gitleaks + semgrep on the full tree (catches PRs
+  that bypassed local hooks)
+- Audit job (scheduled, daily): `scripts/audit-all.sh
+  --with-images-informational` against the pinned digests
+
+cosign / Sigstore verification is **not** used. The trust model is:
+digest-pinned mainstream image + Trivy + Renovate, not signature
+attestation.
 
 ## Renovate
 
 `renovate.json` configures Renovate to:
+
 - Auto-merge dev-tooling minor/patch updates after CI passes
-- Open PRs (in this repo only — overrides the no-PR rule for bot-driven
-  dep updates) for app-dep major versions
-- Pin GitHub Actions to SHAs
+- Open PRs for app-dep major versions (override the no-PR rule for
+  bot-driven updates)
+- Pin GitHub Actions to SHAs (`pinDigests: true`)
+- Pin Docker image digests (`pinDigests: true` for the docker manager)
 
 ## Forbidden practices
 
 - Editing `uv.lock` or `pnpm-lock.yaml` by hand
 - Committing `.env` or any file matching `*.pem`, `*.key`, `id_rsa*`
 - Hardcoding API keys or tokens in source, even as "TODO replace later"
-- Running `chmod -R` in Dockerfiles
+- `chmod -R` in Dockerfiles
 - `ADD <url>` in Dockerfiles (use multi-stage with explicit verification)
+- Bypassing the safe-wrappers (`uv add` / `pnpm add` directly)
+- Bare image tags in Dockerfiles or compose (always `@sha256:...`)

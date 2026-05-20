@@ -32,6 +32,10 @@ Thumbs.db
 *.log
 .cache/
 
+# Audit artifacts
+sbom.json
+sbom.spdx.json
+
 # Playwright
 test-results/
 playwright-report/

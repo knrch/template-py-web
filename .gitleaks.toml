@@ -1,0 +1,16 @@
+# Gitleaks config. Pair with repo-root `.gitleaksignore` if needed.
+# Docs: https://github.com/gitleaks/gitleaks
+
+title = "<PROJECT_NAME> gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''\.env\.example$''',
+]
+# Add non-secret IDs (UUIDs, ULIDs) you've copied into runbooks/docs here:
+# regexes = [
+#   '''00000000-0000-0000-0000-000000000000''',
+# ]

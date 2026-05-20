@@ -1,0 +1,9 @@
+# Paths Semgrep should not traverse.
+node_modules/
+dist/
+dev-dist/
+coverage/
+.venv/
+__pycache__/
+.ruff_cache/
+.pnpm-store/

@@ -11,8 +11,7 @@ install:
     cd backend && uv sync --frozen
     cd frontend && pnpm install --frozen-lockfile
 
-# run backend and frontend in dev mode (two terminals recommended,
-# or use a multiplexer). For single-terminal use, prefer `just docker-up`.
+# run backend and frontend in dev mode (two terminals recommended)
 dev-backend:
     cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -36,13 +35,13 @@ test-e2e:
 lint:
     cd backend && uv run ruff check . && uv run ruff format --check .
     cd backend && uv run pyright
-    cd frontend && pnpm exec biome check .
+    cd frontend && pnpm exec eslint . --max-warnings 0
     cd frontend && pnpm exec vue-tsc --noEmit
 
 # autofix what's autofixable
 fmt:
     cd backend && uv run ruff check --fix . && uv run ruff format .
-    cd frontend && pnpm exec biome check --write .
+    cd frontend && pnpm exec eslint . --fix
 
 # build both Dockerfiles
 docker-build:
@@ -52,6 +51,11 @@ docker-build:
 docker-up:
     docker compose up -d
     @echo "Backend: http://localhost:8000  Frontend: http://localhost:5173"
+
+# bring up stack with Caddy proxy in front (http://localhost:8080)
+docker-up-proxy:
+    docker compose --profile proxy up -d
+    @echo "Proxy: http://localhost:8080  Backend: http://localhost:8000  Frontend: http://localhost:5173"
 
 docker-down:
     docker compose down -v
@@ -79,7 +83,7 @@ smoke:
 
 # database migration helpers
 db-revision message:
-    cd backend && uv run alembic revision --autogenerate -m "{{message}"
+    cd backend && uv run alembic revision --autogenerate -m "{{message}}"
 
 db-upgrade:
     cd backend && uv run alembic upgrade head
@@ -87,16 +91,31 @@ db-upgrade:
 db-downgrade:
     cd backend && uv run alembic downgrade -1
 
-# pre-commit setup
+# pre-commit setup (lefthook if available, else core.hooksPath)
 hooks-install:
-    lefthook install
+    scripts/install-hooks.sh
 
-# generate SBOM (CI does this automatically)
+# Supply-chain audits ------------------------------------------------------
+
+# Lockfile + source scans (gitleaks + semgrep). No image scanning.
+audit:
+    scripts/audit-all.sh
+
+# Above + Trivy on digest-pinned bases (HIGH/CRITICAL gate).
+audit-images:
+    scripts/audit-all.sh --with-images
+
+# Above, but Trivy findings are advisory (used in scheduled CI).
+audit-images-informational:
+    scripts/audit-all.sh --with-images-informational
+
+# Audited dependency operations — never bare `uv add` or `pnpm add`.
+safe-uv +args:
+    scripts/safe-uv.sh {{args}}
+
+safe-pnpm +args:
+    scripts/safe-pnpm.sh {{args}}
+
+# SBOM for the built image (optional artifact)
 sbom:
     syft scan dir:. -o spdx-json > sbom.json
-
-# verify Chainguard image signatures
-verify-images:
-    cosign verify cgr.dev/chainguard/python --certificate-identity-regexp '.*chainguard.*' --certificate-oidc-issuer-regexp '.*'
-    cosign verify cgr.dev/chainguard/node --certificate-identity-regexp '.*chainguard.*' --certificate-oidc-issuer-regexp '.*'
-    cosign verify cgr.dev/chainguard/nginx --certificate-identity-regexp '.*chainguard.*' --certificate-oidc-issuer-regexp '.*'

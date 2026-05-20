@@ -14,17 +14,22 @@ surface the conflict and get explicit confirmation before proceeding.
 2. **Open a PR.** No `gh pr create`. The exception is Renovate dep
    updates, which the bot opens and the user merges manually.
 3. **Add a dependency.** Propose first with rationale, license, source,
-   and Chainguard availability. Wait for approval. Then `uv add` /
-   `pnpm add`.
-4. **Switch a tool.** uv, ruff, pyright, pnpm, vite, biome, FastAPI,
-   Vue, Postgres are locked. Don't propose Poetry, mypy, npm, esbuild,
-   ESLint, Prettier, Flask, React, MySQL.
+   install footprint, and existing-advisory check. Wait for approval.
+   Then `scripts/safe-uv.sh add` / `scripts/safe-pnpm.sh add` — never
+   bare `uv add` / `pnpm add`.
+4. **Switch a tool.** uv, ruff, pyright, pnpm, vite, ESLint
+   (+ eslint-plugin-vue + typescript-eslint), FastAPI, Vue, Postgres
+   are locked. Don't propose Poetry, mypy, npm, esbuild, biome,
+   Prettier, Flask, React, MySQL.
 5. **Skip phases.** Don't deploy without Docker testing. Don't commit
    without prod smoke. The 15-step cycle exists for reasons.
 6. **Edit lockfiles by hand.** `uv.lock`, `pnpm-lock.yaml` are
    tool-managed.
-7. **Use `--no-verify` to bypass pre-commit.** If a hook is wrong, fix
-   the hook or the file.
+7. **Use `--no-verify` or `SKIP_*` env bypasses for routine commits.**
+   The `SKIP_STATIC_SCAN`, `SKIP_GITLEAKS`, `SKIP_SEMGREP`, `SKIP_AUDIT`
+   envs exist for emergencies, not convenience. If a hook is failing
+   wrongly, fix the hook, the allowlist (`.gitleaks.toml`,
+   `.semgrepignore`, `.trivyignore`), or the file.
 8. **Hardcode secrets.** Never. Even with a comment.
 9. **Add infrastructure.** No Terraform, no Pulumi, no Kubernetes.
    Railway's abstraction is the point.

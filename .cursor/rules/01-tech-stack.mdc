@@ -23,43 +23,69 @@ the user explicitly opens the question.
 
 Forbidden in backend code: `pip install`, `poetry`, `requirements.txt`,
 `pipenv`, `mypy`, `black`, `flake8`, `isort`, plain `logging` for app
-logs (structlog wraps it).
+logs (structlog wraps it). Bare `uv add` is forbidden — use
+`scripts/safe-uv.sh add` so the audit gate runs.
 
 ## Frontend (TypeScript)
 
 - Runtime: Node 24 LTS, pinned in `.tool-versions`
-- Package manager: **pnpm** (only)
+- Package manager: **pnpm** (only), bootstrapped via corepack
 - Build tool: **vite**
 - Framework: **Vue 3** (composition API, `<script setup>`)
-- Linter / formatter: **biome** (replaces eslint + prettier)
+- Linter: **ESLint 9** flat config + **eslint-plugin-vue** +
+  **typescript-eslint** (biome would be tempting but doesn't lint
+  `.vue` template blocks)
+- Formatter: ESLint `--fix` (no separate Prettier)
 - Test runner: **vitest** (unit) + **playwright** (one E2E smoke)
 - Errors: **@sentry/vue**
 
-Forbidden in frontend code: `npm install`, `yarn`, `eslint`, `prettier`,
+Forbidden in frontend code: `npm install`, `yarn`, `biome`, `prettier`,
 React, Pinia (until justified by complexity), global state without a
-written ADR.
+written ADR. Bare `pnpm add` is forbidden — use `scripts/safe-pnpm.sh
+add`.
 
 ## Infrastructure
 
-- Container base: **`cgr.dev/chainguard/*`** (only)
+- Container base: digest-pinned **mainstream public images** (see
+  `20-docker.mdc` for the approved list — `python:3.14-slim`,
+  `node:24-alpine`, `nginx:alpine`, `caddy:2-alpine`,
+  `postgres:16-alpine`)
 - Local: **docker-compose**
 - Deploy: **Railway** (production only, no staging)
 - Tool versions: **mise** with `.tool-versions`
 - Task runner: **just** (`justfile`)
-- Pre-commit: **lefthook**
-- Secret scanning: **gitleaks** (blocks commit on detection)
-- SBOM: **syft**
-- Image verification: **cosign**
+- Pre-commit runner: **lefthook** (invokes
+  `scripts/git-hooks/pre-commit`)
+
+## Audit / security toolchain
+
+These are mandatory; the project does not ship without them.
+
+- **gitleaks** — secrets, repo-local config in `.gitleaks.toml`
+- **semgrep** — SAST, `p/typescript` + `p/python` registries
+- **osv-scanner** — cross-ecosystem CVE backstop
+- **pip-audit** — Python lockfile CVEs
+- **pnpm audit** — JS lockfile CVEs (web template)
+- **trivy** — OS packages in digest-pinned bases (gated by
+  `.trivyignore`)
+
+All wrapped by `scripts/audit-all.sh`. cosign / Sigstore is **not**
+part of the stack — the trust model is digest-pinned bases + Trivy +
+Renovate, not signature attestation.
 
 ## Adding a dependency
 
 Before adding any dependency, propose it with:
+
 1. Package name and version
 2. Why it's needed and what existing dep doesn't already cover it
 3. Link to source repo and license
-4. Whether it's available as a Chainguard / Wolfi package
-5. Rough install footprint (transitive deps, install size)
+4. Rough install footprint (transitive deps, install size)
+5. Whether `osv-scanner` / `pip-audit` / `pnpm audit` shows any
+   existing advisories for it
 
-If the user approves, then run `uv add <pkg>` or `pnpm add <pkg>`. Never
-edit `pyproject.toml` or `package.json` by hand to add a dep — let the
-tool resolve and lock it.
+If approved, run `scripts/safe-uv.sh add <pkg>` or
+`scripts/safe-pnpm.sh add <pkg>`. The wrapper snapshots the lockfile,
+runs the install, re-audits, and rejects the change if any new
+advisory of any severity appears. Never edit `pyproject.toml` /
+`package.json` by hand to add a dep — let the tool resolve and lock.

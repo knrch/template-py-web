@@ -1,7 +1,12 @@
 # Local development stack. Not used for deployment.
+# Digests must match Dockerfiles + scripts/audit-all.sh. Resolve at bootstrap:
+#   docker pull postgres:16-alpine
+#   docker inspect --format='{{index .RepoDigests 0}}' postgres:16-alpine
+#   docker pull caddy:2-alpine
+#   docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine
 services:
   postgres:
-    image: cgr.dev/chainguard/postgres:latest
+    image: postgres:16-alpine@sha256:PIN_ME_AT_BOOTSTRAP
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -41,6 +46,19 @@ services:
       - "5173:8080"
     depends_on:
       - backend
+
+  # Optional Caddy proxy. Enable with: `docker compose --profile proxy up`.
+  # Routes /api/* → backend, /* → frontend. Mirrors the production topology
+  # if you put Caddy in front on Railway.
+  proxy:
+    profiles: ["proxy"]
+    build:
+      context: ./proxy
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+      - frontend
 
 volumes:
   pgdata:

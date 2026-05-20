@@ -1,26 +1,14 @@
-# Pre-commit and pre-push hooks. Install with `lefthook install`.
+# lefthook is the trigger; the three-stage logic (gitleaks → semgrep →
+# conditional audit-all.sh) lives in scripts/git-hooks/pre-commit so it
+# can also be invoked directly via `core.hooksPath`. `scripts/install-
+# hooks.sh` picks the install mode at install time.
 
 pre-commit:
-  parallel: true
   commands:
-    gitleaks:
-      run: gitleaks protect --staged --no-banner --redact
-      fail_text: "Secret detected. Rotate it, then unstage and use a placeholder."
-    ruff-check:
-      glob: "backend/**/*.py"
-      run: cd backend && uv run ruff check {staged_files}
-    ruff-format:
-      glob: "backend/**/*.py"
-      run: cd backend && uv run ruff format --check {staged_files}
-    biome:
-      glob: "frontend/**/*.{js,jsx,ts,tsx,vue,json}"
-      run: cd frontend && pnpm exec biome check {staged_files}
-    hadolint:
-      glob: "**/Dockerfile*"
-      run: hadolint {staged_files}
-    shellcheck:
-      glob: "**/*.sh"
-      run: shellcheck {staged_files}
+    audit-pipeline:
+      # gitleaks (staged) → semgrep (staged) → audit-all (conditional).
+      # Honors SKIP_STATIC_SCAN, SKIP_GITLEAKS, SKIP_SEMGREP, SKIP_AUDIT.
+      run: scripts/git-hooks/pre-commit
 
 pre-push:
   commands:

@@ -9,8 +9,8 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:e2e": "playwright test",
-    "lint": "biome check .",
-    "format": "biome check --write .",
+    "lint": "eslint . --max-warnings 0",
+    "format": "eslint . --fix",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
@@ -19,15 +19,21 @@
     "@sentry/vue": "^8.45.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.49.0",
+    "@sentry/vite-plugin": "^2.22.7",
     "@vitejs/plugin-vue": "^5.2.0",
     "@vue/test-utils": "^2.4.6",
     "@vue/tsconfig": "^0.7.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-vue": "^9.32.0",
+    "globals": "^15.14.0",
     "happy-dom": "^15.0.0",
     "typescript": "~5.6.0",
+    "typescript-eslint": "^8.18.0",
     "vite": "^6.0.0",
     "vitest": "^2.1.0",
+    "vue-eslint-parser": "^9.4.3",
     "vue-tsc": "^2.1.0"
   },
   "packageManager": "pnpm@9.15.0"

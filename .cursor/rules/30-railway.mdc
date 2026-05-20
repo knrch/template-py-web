@@ -87,6 +87,6 @@ If migrations fail, the deploy aborts before promoting the new image.
 
 - Setting env vars in the Railway dashboard (use CLI)
 - Multiple environments (no staging — single-dev workflow)
-- SSH-into-container debugging (Chainguard runtime has no shell anyway;
-  reproduce locally with `docker compose up`)
+- SSH-into-container debugging (containers run as a non-root user with
+  a minimal surface; reproduce locally with `docker compose up`)
 - Running migrations manually after deploy (use preDeployCommand)

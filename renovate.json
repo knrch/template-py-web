@@ -17,9 +17,9 @@
       "pinDigests": true
     },
     {
-      "description": "Group Chainguard image bumps",
-      "matchPackagePatterns": ["^cgr.dev/chainguard/"],
-      "groupName": "chainguard images"
+      "description": "Pin Docker image digests",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "pinDigests": true
     }
   ],
   "vulnerabilityAlerts": {
